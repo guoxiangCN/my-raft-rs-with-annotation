@@ -1,0 +1,25 @@
+[package]
+name = "my-raft-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = "0.3"
+thiserror = "1.0"
+rand = "0.4"
+flat_map = "0.0.4"
+
+bytes = { version = "1", optional = true }
+lazy_static = { version = "1", optional = true }
+prost = { version = "0.9", optional = true }
+protobuf = "2"
+
+[features]
+default = ["protobuf-codec"]
+protobuf-codec = ["protobuf-build/protobuf-codec", "bytes", "protobuf/bytes"]
+prost-codec = ["protobuf-build/prost-codec", "prost", "lazy_static"]
+
+[build-dependencies]
+protobuf-build = { version = "0.13", default-features = false }

@@ -1,5 +1,3 @@
-use core::panic;
-use std::cmp;
 use ::flat_map::FlatMap;
 use ::flat_map::flat_map;
 use std::iter::Chain;
@@ -43,10 +41,12 @@ impl ProgressSet {
         }
     }
 
+    #[inline]
     pub fn voters(&self) -> &FlatMap<u64, Progress> {
         &self.voters
     }
 
+    #[inline]
     pub fn learners(&self) -> &FlatMap<u64, Progress> {
         &self.learners
     }
@@ -127,7 +127,7 @@ impl ProgressSet {
 #[derive(Debug,Default,Clone)]
 pub struct Progress {
     /// raft论文里的matchIndex, 代表针对该follower节点，已知的的和Leader匹配的最高日志索引.
-    /// 初始化为0, 单调递增
+    /// 即follower的lastApplied.
     pub matched: u64,
 
     /// raft论文里的nextIndex, 代表针对该follower节点, 下一个需要发送的日志条目索引.
@@ -156,7 +156,96 @@ pub struct Progress {
     pub is_learner: bool,
 }
 
+impl Progress {
+
+    fn reset_state(&mut self, state: ProgressState) {
+        self.paused=false;
+        self.pending_snapshot=0;
+        self.state=state;
+        self.ins.reset();
+    }
+
+    pub fn become_probe(&mut self) {
+        // 如果原来的状态是Snapshot,则代表Progress知道pending的snapshot已经成功
+        // 发送给了这个Peer, 那么则可以直接从pending_snapshot+1开始探测.
+        if self.state  == ProgressState::Snapshot {
+            let pending_snapshot = self.pending_snapshot;
+            self.reset_state(ProgressState::Probe);
+            self.next_idx=std::cmp::max(self.matched+1, pending_snapshot+1);
+        } else {
+            self.reset_state(ProgressState::Probe);
+            self.next_idx = self.matched + 1;
+        }
+    }
+
+    pub fn become_replicate(&mut self) {
+        self.reset_state(ProgressState::Replicate);
+        self.next_idx = self.matched + 1;
+    }
+
+    pub fn become_snapshot(&mut self, snapshot_idx: u64) {
+        self.reset_state(ProgressState::Snapshot);
+        self.pending_snapshot = snapshot_idx;
+    }
+
+    #[inline]
+    pub fn snapshot_failure(&mut self) {
+        self.pending_snapshot=0;
+    }
+
+    #[inline]
+    pub fn maybe_snapshot_abort(&self) -> bool {
+        self.state==ProgressState::Snapshot && self.matched >= self.pending_snapshot
+    }
+
+    pub fn maybe_update(&mut self, n: u64) -> bool {
+        let need_update = self.matched < n;
+        if need_update {
+            self.matched = n;
+            self.resume();
+        }
+
+        if self.next_idx < n+1 {
+            self.next_idx = n+1
+        }
+
+        need_update
+    }
+
+    pub fn optimistic_update(&mut self, n: u64) {
+        self.next_idx = n+1;
+    }
+
+    #[inline]
+    pub fn is_paused(&self)->bool {
+        match self.state {
+            ProgressState::Probe => self.paused,
+            ProgressState::Replicate => self.ins.full(),
+            ProgressState::Snapshot=>true,
+        }
+    }
+
+    pub fn pause(&mut self) {
+        self.paused=true;
+    }
+
+    pub fn resume(&mut self) {
+        self.paused=false;
+    }
+
+}
+
 #[derive(Debug,Default,Clone)]
 pub struct Inflights {
 
+}
+
+impl Inflights {
+    fn reset(&mut self) {
+        // TODO
+    }
+
+    fn full(&self) -> bool {
+        false
+    }
 }
